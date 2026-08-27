@@ -25,9 +25,7 @@ and describe what you want done.
 |---|---|
 | `mvp/` | **The MVP.** Four files, ~530 lines. Start here. |
 
-That is the whole repo for now. A later phase — operation grammar,
-deterministic codegen, approval gates, a multi-workbook registry — is built but
-deliberately kept out of this cut; see [mvp/README.md](mvp/README.md) for what
+That is the whole repo for now. A later phase - see [mvp/README.md](mvp/README.md) for what
 it adds and when it becomes worth landing.
 
 ## Requirements
