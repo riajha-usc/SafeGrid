@@ -1,4 +1,4 @@
-# Ops-Hubs Compiler
+# SafeGrid
 
 Describe a change to a Google Sheet in plain English; get back Apps Script you
 can read, run, and deploy in Google Workspace.
