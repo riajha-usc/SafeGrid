@@ -82,3 +82,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Scratch: PR description, not part of the project
+PR_BODY.md
