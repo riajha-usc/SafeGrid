@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# Secrets, credentials, tokens — never commit these
+# ---------------------------------------------------------------------------
+# Environment files (ANTHROPIC_API_KEY lives here)
+.env
+.env.*
+!.env.example
+*.env
+
+# Generic key / certificate material
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+
+# Google / Google Workspace credentials
+credentials.json
+client_secret*.json
+service-account*.json
+service_account*.json
+*-service-account.json
+token.json
+token.pickle
+oauth*.json
+gcloud-*.json
+application_default_credentials.json
+
+# clasp — the Apps Script CLI. .clasprc.json holds a live OAuth refresh token.
+.clasprc.json
+.clasp.json
+
+# Anthropic / generic API key files
+.anthropic
+anthropic.json
+api_key*
+apikey*
+*_api_key*
+*_secret*
+*_token*
+secrets.*
+secret.*
+
+# Cloud provider credentials
+.aws/
+.azure/
+.gcp/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+node_modules/
+
+# ---------------------------------------------------------------------------
+# Project output
+# ---------------------------------------------------------------------------
+# Generated Apps Script. May embed real spreadsheet IDs — regenerate instead
+# of committing.
+generated/
+mvp/generated/
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
