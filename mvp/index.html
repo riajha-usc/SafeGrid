@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops-Hubs — Sheets script generator</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b68;
+    --line: #e4e4e1; --accent: #8c5a3c; --accent-ink: #fff;
+    --code-bg: #1e1e1c; --code-ink: #e8e6e1; --err: #a33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191917; --panel: #211f1d; --ink: #eeece8; --muted: #9a978f;
+      --line: #34322e; --accent: #c88a63; --accent-ink: #1a1a19;
+      --code-bg: #131211; --code-ink: #e8e6e1; --err: #e08b8b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 120px; padding: 14px; resize: vertical;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; line-height: 1.5;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
+  button {
+    background: var(--accent); color: var(--accent-ink); border: 0;
+    padding: 10px 20px; border-radius: 7px; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .status { color: var(--muted); font-size: 13px; }
+  .examples { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .examples button {
+    background: none; color: var(--accent); border: 0; padding: 2px 0;
+    font-weight: 400; font-size: 13px; cursor: pointer; text-decoration: underline;
+    text-underline-offset: 2px; display: block; text-align: left; margin-top: 4px;
+  }
+  .out { margin-top: 32px; display: none; }
+  .out.show { display: block; }
+  .note {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 14px 16px; border-radius: 6px; margin-bottom: 16px;
+  }
+  .target { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .target code { font-size: 12px; }
+  pre {
+    background: var(--code-bg); color: var(--code-ink); padding: 18px;
+    border-radius: 8px; overflow-x: auto; margin: 0;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .codehead { display: flex; justify-content: space-between; align-items: center;
+              margin-bottom: 8px; }
+  .codehead span { font-weight: 600; font-size: 13px; }
+  .codehead button { background: var(--panel); color: var(--ink);
+                     border: 1px solid var(--line); padding: 6px 12px; font-size: 13px; }
+  ol { padding-left: 20px; color: var(--muted); font-size: 14px; }
+  ol code { color: var(--ink); }
+  .error { color: var(--err); margin-top: 16px; white-space: pre-wrap; font-size: 14px; }
+  code { background: var(--panel); border: 1px solid var(--line);
+         padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sheets script generator</h1>
+  <p class="sub">Describe what you want done. Include the spreadsheet link so the
+     script knows where to run.</p>
+
+  <label for="q">Your request</label>
+  <textarea id="q" placeholder="In https://docs.google.com/spreadsheets/d/… mark everyone in the Week 3 cohort as excused for Friday's field trip"></textarea>
+
+  <div class="row">
+    <button id="go">Generate script</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="examples">
+    Try:
+    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — add a "Days Since Start" column that counts days from each person's Start Date to today.</button>
+    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — highlight every row on the Student Workers tab where the USC Email Address is blank.</button>
+    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — sort the Guest Speakers tab by Date of Speaking Event, keeping the header row in place.</button>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <div class="out" id="out">
+    <div class="note" id="explanation"></div>
+    <div class="target" id="target"></div>
+
+    <div class="codehead">
+      <span>Apps Script</span>
+      <button id="copy">Copy</button>
+    </div>
+    <pre><code id="code"></code></pre>
+
+    <h3 style="font-size:14px;margin:26px 0 8px;">Running it</h3>
+    <ol>
+      <li>Open your spreadsheet → <code>Extensions</code> → <code>Apps Script</code>.</li>
+      <li>Paste the code over anything in <code>Code.gs</code>, then Save.</li>
+      <li>Pick the function from the dropdown and click <code>Run</code>.</li>
+      <li>First run only: Google asks you to authorise the script. Read what it
+          asks for before accepting.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function run() {
+  const query = $('q').value.trim();
+  if (!query) { $('q').focus(); return; }
+
+  $('go').disabled = true;
+  $('status').textContent = 'Writing the script…';
+  $('error').textContent = '';
+  $('out').classList.remove('show');
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed.');
+
+    $('explanation').textContent = data.explanation;
+    $('code').textContent = data.code;
+    $('target').innerHTML = data.spreadsheet_id
+      ? 'Targets spreadsheet <code>' + data.spreadsheet_id + '</code>'
+      : 'No spreadsheet link found in your request, so the script runs on whichever '
+        + 'spreadsheet you paste it into.';
+    $('out').classList.add('show');
+    $('status').textContent = '';
+  } catch (err) {
+    $('error').textContent = err.message;
+    $('status').textContent = '';
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+$('go').addEventListener('click', run);
+$('q').addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') run();
+});
+document.querySelectorAll('.ex').forEach(b =>
+  b.addEventListener('click', () => { $('q').value = b.textContent.trim(); $('q').focus(); }));
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('code').textContent);
+  $('copy').textContent = 'Copied';
+  setTimeout(() => { $('copy').textContent = 'Copy'; }, 1400);
+});
+</script>
+</body>
+</html>
