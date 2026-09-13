@@ -85,3 +85,8 @@ Thumbs.db
 
 # Scratch: PR description, not part of the project
 PR_BODY.md
+
+# ---------------------------------------------------------------------------
+# Advanced phase — held back from the MVP cut
+# ---------------------------------------------------------------------------
+advanced/
