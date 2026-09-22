@@ -12,6 +12,7 @@ reachable from the network during development.
 """
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -21,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mvp.generate import GenerationError, generate  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-HOST, PORT = "127.0.0.1", 8000
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("SAFEGRID_PORT", "8000"))
 MAX_BODY = 100_000          # a request is a sentence, not a payload
 
 
@@ -75,9 +77,17 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    print(f"Ops-Hubs MVP running at http://{HOST}:{PORT}  (ctrl-c to stop)")
     try:
-        HTTPServer((HOST, PORT), Handler).serve_forever()
+        server = HTTPServer((HOST, PORT), Handler)
+    except OSError as exc:
+        if exc.errno == 48:      # EADDRINUSE
+            print(f"Port {PORT} is already in use — another SafeGrid may be "
+                  f"running. Stop it, or set SAFEGRID_PORT to a free port.")
+            return
+        raise
+    print(f"SafeGrid running at http://{HOST}:{PORT}  (ctrl-c to stop)")
+    try:
+        server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
 
