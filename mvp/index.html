@@ -95,8 +95,8 @@
   <div class="examples">
     Try:
     <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — add a "Days Since Start" column that counts days from each person's Start Date to today.</button>
-    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — highlight every row on the Student Workers tab where the USC Email Address is blank.</button>
-    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — sort the Guest Speakers tab by Date of Speaking Event, keeping the header row in place.</button>
+    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — highlight every row where the Email Address column is blank.</button>
+    <button class="ex">In https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID/edit — sort the sheet by the Start Date column, keeping the header row in place.</button>
   </div>
 
   <div class="error" id="error"></div>
@@ -125,6 +125,16 @@
 <script>
 const $ = id => document.getElementById(id);
 
+// The explanation is model output, so escape it before applying any
+// formatting. Escaping first is what makes this safe: only the ** ** markers
+// we add afterwards can become HTML, never anything the model wrote.
+function formatExplanation(text) {
+  const escaped = (text || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
 async function run() {
   const query = $('q').value.trim();
   if (!query) { $('q').focus(); return; }
@@ -143,7 +153,7 @@ async function run() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed.');
 
-    $('explanation').textContent = data.explanation;
+    $('explanation').innerHTML = formatExplanation(data.explanation);
     $('code').textContent = data.code;
     const where = data.spreadsheet_id
       ? 'Targets spreadsheet <code>' + data.spreadsheet_id + '</code>'
