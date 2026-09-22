@@ -5,20 +5,29 @@ The whole MVP is this call plus a thin web server. Given a sentence like
 
     "In spreadsheet <url>, mark every student in the Week3 cohort as excused"
 
-it finds the spreadsheet the sentence is talking about, asks Claude for the
+it finds the spreadsheet the sentence is talking about, asks a model for the
 Apps Script that does the job, and hands the code back for a human to paste
 into the Apps Script editor.
 
 Nothing here runs the generated code. It is text on a page until a person
 reads it and clicks Run — which is the review step the MVP relies on.
+
+Two providers are supported; this is the only file that knows the difference.
+
+    SAFEGRID_PROVIDER=groq|anthropic   (default: whichever key is set)
+    GROQ_API_KEY / ANTHROPIC_API_KEY
+    GROQ_MODEL / ANTHROPIC_MODEL       (optional overrides)
 """
 
 import os
 import re
 
 import anthropic
+import groq
 
-MODEL = "claude-opus-5"
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
+# Override with GROQ_MODEL if this id is retired.
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 MAX_TOKENS = 16000
 
 # A Sheets URL, or a bare file id pasted on its own. Real ids are 40+ chars of
@@ -26,12 +35,29 @@ MAX_TOKENS = 16000
 SHEET_URL_RE = re.compile(r"spreadsheets/d/([A-Za-z0-9_-]{20,})")
 SHEET_ID_RE = re.compile(r"(?<![A-Za-z0-9_-])([A-Za-z0-9_-]{40,})(?![A-Za-z0-9_-])")
 
-# Claude is asked for exactly one fenced block, so the fence is the contract.
+# The model is asked for exactly one fenced block, so the fence is the contract.
 CODE_FENCE_RE = re.compile(r"```(?:javascript|js|gs)?\s*\n(.*?)```", re.S)
 
 
 class GenerationError(Exception):
     """Anything that stops us returning runnable code."""
+
+
+def resolve_provider() -> str:
+    """An explicit SAFEGRID_PROVIDER wins; otherwise whichever key is set."""
+    choice = os.environ.get("SAFEGRID_PROVIDER", "").strip().lower()
+    if choice in ("groq", "anthropic"):
+        return choice
+    if choice:
+        raise GenerationError(
+            f"SAFEGRID_PROVIDER is '{choice}'. Use 'groq' or 'anthropic'.")
+    if os.environ.get("GROQ_API_KEY"):
+        return "groq"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    raise GenerationError(
+        "No API key found. Set GROQ_API_KEY or ANTHROPIC_API_KEY, then "
+        "restart the server.")
 
 
 def find_spreadsheet_id(text: str) -> str | None:
@@ -97,50 +123,88 @@ def build_user_message(query: str, spreadsheet_id: str | None) -> str:
     return f"{target}Request:\n{query}"
 
 
-def generate(query: str, api_key: str | None = None) -> dict:
-    """Return {spreadsheet_id, explanation, code} for one request."""
-    if not query or not query.strip():
-        raise GenerationError("Type a request first.")
-
+def _call_anthropic(system: str, user: str, api_key: str | None) -> str:
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        raise GenerationError(
-            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env, put your "
-            "key in it, then: export $(cat .env | xargs)"
-        )
-
+        raise GenerationError("ANTHROPIC_API_KEY is not set.")
     client = anthropic.Anthropic(api_key=key)
-    spreadsheet_id = find_spreadsheet_id(query)
-
     try:
         # Streamed so a long script cannot hit the request timeout; we only
         # need the finished message, not the individual events.
         with client.messages.stream(
-            model=MODEL,
+            model=ANTHROPIC_MODEL,
             max_tokens=MAX_TOKENS,
             thinking={"type": "adaptive"},
-            system=SYSTEM,
-            messages=[{"role": "user",
-                       "content": build_user_message(query, spreadsheet_id)}],
+            system=system,
+            messages=[{"role": "user", "content": user}],
         ) as stream:
             message = stream.get_final_message()
     except anthropic.AuthenticationError:
-        raise GenerationError("That API key was rejected. Check ANTHROPIC_API_KEY.")
+        raise GenerationError("That Anthropic key was rejected.")
     except anthropic.RateLimitError:
-        raise GenerationError("Rate limited by the API. Wait a moment and try again.")
+        raise GenerationError("Rate limited by Anthropic. Wait a moment.")
+    except anthropic.APIStatusError as exc:
+        if "credit balance" in str(exc).lower():
+            raise GenerationError(
+                "Anthropic account is out of credits. Add credits, or set "
+                "GROQ_API_KEY to use Groq instead.")
+        raise GenerationError(f"Anthropic error: {exc}")
     except anthropic.APIError as exc:
-        raise GenerationError(f"API error: {exc}")
+        raise GenerationError(f"Anthropic error: {exc}")
 
     if message.stop_reason == "refusal":
         raise GenerationError("The model declined this request.")
+    return "".join(b.text for b in message.content if b.type == "text")
 
-    text = "".join(b.text for b in message.content if b.type == "text")
+
+def _call_groq(system: str, user: str, api_key: str | None) -> str:
+    key = api_key or os.environ.get("GROQ_API_KEY")
+    if not key:
+        raise GenerationError("GROQ_API_KEY is not set.")
+    client = groq.Groq(api_key=key)
+    try:
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            max_tokens=MAX_TOKENS,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+        )
+    except groq.AuthenticationError:
+        raise GenerationError("That Groq key was rejected.")
+    except groq.RateLimitError:
+        raise GenerationError(
+            "Groq rate limit hit. Wait a minute and try again.")
+    except groq.NotFoundError:
+        raise GenerationError(
+            f"Groq has no model '{GROQ_MODEL}'. Set GROQ_MODEL to a current id.")
+    except groq.APIError as exc:
+        raise GenerationError(f"Groq error: {exc}")
+
+    return completion.choices[0].message.content or ""
+
+
+def generate(query: str, api_key: str | None = None) -> dict:
+    """Return {provider, model, spreadsheet_id, explanation, code}."""
+    if not query or not query.strip():
+        raise GenerationError("Type a request first.")
+
+    provider = resolve_provider()
+    spreadsheet_id = find_spreadsheet_id(query)
+    user = build_user_message(query, spreadsheet_id)
+
+    if provider == "groq":
+        text, model = _call_groq(SYSTEM, user, api_key), GROQ_MODEL
+    else:
+        text, model = _call_anthropic(SYSTEM, user, api_key), ANTHROPIC_MODEL
 
     match = CODE_FENCE_RE.search(text)
     if not match:
-        raise GenerationError("No code block came back. Try rephrasing the request.")
+        raise GenerationError(
+            "No code block came back. Try rephrasing, or switch provider.")
 
     return {
+        "provider": provider,
+        "model": model,
         "spreadsheet_id": spreadsheet_id,
         "explanation": text[: match.start()].strip(),
         "code": match.group(1).strip(),

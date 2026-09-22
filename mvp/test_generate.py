@@ -16,7 +16,7 @@ from mvp import generate as g
 
 
 def fake_reply(text, stop_reason="end_turn"):
-    """A stand-in for the streamed message the SDK returns."""
+    """A stand-in for the streamed message the Anthropic SDK returns."""
     message = SimpleNamespace(
         content=[SimpleNamespace(type="text", text=text)],
         stop_reason=stop_reason,
@@ -26,6 +26,19 @@ def fake_reply(text, stop_reason="end_turn"):
     client = mock.MagicMock()
     client.messages.stream.return_value = stream
     return client
+
+
+def fake_groq_reply(text):
+    """A stand-in for a Groq chat completion."""
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+    client = mock.MagicMock()
+    client.chat.completions.create.return_value = completion
+    return client
+
+
+ANTHROPIC_ONLY = {"ANTHROPIC_API_KEY": "test"}
+GROQ_ONLY = {"GROQ_API_KEY": "test"}
 
 
 REPLY = """This adds a Days Since Start column.
@@ -70,9 +83,57 @@ class TestBuildUserMessage(unittest.TestCase):
         self.assertNotIn("openById", msg)
 
 
+class TestResolveProvider(unittest.TestCase):
+    """Which provider gets called, and why."""
+
+    def test_defaults_to_groq_when_only_groq_key_is_set(self):
+        with mock.patch.dict("os.environ", GROQ_ONLY, clear=True):
+            self.assertEqual(g.resolve_provider(), "groq")
+
+    def test_defaults_to_anthropic_when_only_anthropic_key_is_set(self):
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True):
+            self.assertEqual(g.resolve_provider(), "anthropic")
+
+    def test_explicit_setting_wins_over_the_keys_present(self):
+        env = {"SAFEGRID_PROVIDER": "anthropic", **GROQ_ONLY, **ANTHROPIC_ONLY}
+        with mock.patch.dict("os.environ", env, clear=True):
+            self.assertEqual(g.resolve_provider(), "anthropic")
+
+    def test_unknown_provider_name_is_an_error_not_a_silent_fallback(self):
+        with mock.patch.dict("os.environ", {"SAFEGRID_PROVIDER": "openai"}, clear=True):
+            with self.assertRaises(g.GenerationError):
+                g.resolve_provider()
+
+    def test_no_key_at_all_names_both_options(self):
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(g.GenerationError) as ctx:
+                g.resolve_provider()
+        self.assertIn("GROQ_API_KEY", str(ctx.exception))
+        self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
+
+
+class TestGroqPath(unittest.TestCase):
+    def test_groq_returns_the_same_shape_as_anthropic(self):
+        with mock.patch.dict("os.environ", GROQ_ONLY, clear=True), \
+             mock.patch.object(g.groq, "Groq", return_value=fake_groq_reply(REPLY)):
+            out = g.generate("add a column", api_key="test")
+        self.assertEqual(out["provider"], "groq")
+        self.assertEqual(out["model"], g.GROQ_MODEL)
+        self.assertTrue(out["code"].startswith("function addDaysSinceStart()"))
+        self.assertNotIn("```", out["code"])
+
+    def test_anthropic_is_not_called_when_groq_is_selected(self):
+        with mock.patch.dict("os.environ", GROQ_ONLY, clear=True), \
+             mock.patch.object(g.groq, "Groq", return_value=fake_groq_reply(REPLY)), \
+             mock.patch.object(g.anthropic, "Anthropic") as anthropic_client:
+            g.generate("add a column", api_key="test")
+        anthropic_client.assert_not_called()
+
+
 class TestGenerate(unittest.TestCase):
     def test_happy_path_splits_explanation_from_code(self):
-        with mock.patch.object(g.anthropic, "Anthropic", return_value=fake_reply(REPLY)):
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True), \
+             mock.patch.object(g.anthropic, "Anthropic", return_value=fake_reply(REPLY)):
             out = g.generate("add a column, sheet "
                              "1ExampleFakeSheetIdForTestsOnly_0123456789A",
                              api_key="test")
@@ -83,19 +144,22 @@ class TestGenerate(unittest.TestCase):
                          "1ExampleFakeSheetIdForTestsOnly_0123456789A")
 
     def test_reply_without_a_code_block_is_an_error(self):
-        with mock.patch.object(g.anthropic, "Anthropic",
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True), \
+             mock.patch.object(g.anthropic, "Anthropic",
                                return_value=fake_reply("I need more detail.")):
             with self.assertRaises(g.GenerationError):
                 g.generate("something vague", api_key="test")
 
     def test_refusal_is_surfaced_not_swallowed(self):
-        with mock.patch.object(g.anthropic, "Anthropic",
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True), \
+             mock.patch.object(g.anthropic, "Anthropic",
                                return_value=fake_reply(REPLY, stop_reason="refusal")):
             with self.assertRaises(g.GenerationError):
                 g.generate("anything", api_key="test")
 
     def test_empty_query_rejected_before_any_api_call(self):
-        with mock.patch.object(g.anthropic, "Anthropic") as client:
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True), \
+             mock.patch.object(g.anthropic, "Anthropic") as client:
             with self.assertRaises(g.GenerationError):
                 g.generate("   ", api_key="test")
             client.assert_not_called()
@@ -104,11 +168,12 @@ class TestGenerate(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(g.GenerationError) as ctx:
                 g.generate("do a thing")
-        self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
+        self.assertIn("GROQ_API_KEY", str(ctx.exception))
 
     def test_generated_code_parses_as_javascript(self):
         """A reply that is not valid JS should not reach the user as if it were."""
-        with mock.patch.object(g.anthropic, "Anthropic", return_value=fake_reply(REPLY)):
+        with mock.patch.dict("os.environ", ANTHROPIC_ONLY, clear=True), \
+             mock.patch.object(g.anthropic, "Anthropic", return_value=fake_reply(REPLY)):
             out = g.generate("add a column", api_key="test")
         import shutil, subprocess, tempfile, pathlib
         node = shutil.which("node")

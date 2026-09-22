@@ -56,6 +56,11 @@
   }
   .target { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
   .target code { font-size: 12px; }
+  .badge {
+    display: inline-block; margin-left: 8px; padding: 2px 8px;
+    border: 1px solid var(--line); border-radius: 20px;
+    font-size: 11px; color: var(--muted); background: var(--panel);
+  }
   pre {
     background: var(--code-bg); color: var(--code-ink); padding: 18px;
     border-radius: 8px; overflow-x: auto; margin: 0;
@@ -140,10 +145,14 @@ async function run() {
 
     $('explanation').textContent = data.explanation;
     $('code').textContent = data.code;
-    $('target').innerHTML = data.spreadsheet_id
+    const where = data.spreadsheet_id
       ? 'Targets spreadsheet <code>' + data.spreadsheet_id + '</code>'
       : 'No spreadsheet link found in your request, so the script runs on whichever '
         + 'spreadsheet you paste it into.';
+    const badge = data.model
+      ? '<span class="badge">' + data.provider + ' · ' + data.model + '</span>'
+      : '';
+    $('target').innerHTML = where + badge;
     $('out').classList.add('show');
     $('status').textContent = '';
   } catch (err) {
