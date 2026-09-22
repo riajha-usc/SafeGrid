@@ -27,7 +27,7 @@ import groq
 
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
 # Override with GROQ_MODEL if this id is retired.
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 MAX_TOKENS = 16000
 
 # A Sheets URL, or a bare file id pasted on its own. Real ids are 40+ chars of
@@ -157,6 +157,20 @@ def _call_anthropic(system: str, user: str, api_key: str | None) -> str:
     return "".join(b.text for b in message.content if b.type == "text")
 
 
+# Speech, safety-classifier and text-to-speech models share the same list as
+# the chat models but cannot answer a prompt; drop them from suggestions.
+_NON_CHAT = ("whisper", "prompt-guard", "orpheus", "safeguard")
+
+
+def _groq_chat_models(client) -> list[str]:
+    try:
+        return sorted(
+            m.id for m in client.models.list().data
+            if not any(tag in m.id.lower() for tag in _NON_CHAT))
+    except Exception:            # noqa: BLE001 — a hint must never mask the real error
+        return []
+
+
 def _call_groq(system: str, user: str, api_key: str | None) -> str:
     key = api_key or os.environ.get("GROQ_API_KEY")
     if not key:
@@ -175,8 +189,11 @@ def _call_groq(system: str, user: str, api_key: str | None) -> str:
         raise GenerationError(
             "Groq rate limit hit. Wait a minute and try again.")
     except groq.NotFoundError:
+        # Hosted model ids get retired. Name the current ones rather than
+        # leaving the reader to go and look them up.
         raise GenerationError(
-            f"Groq has no model '{GROQ_MODEL}'. Set GROQ_MODEL to a current id.")
+            f"Groq has no model '{GROQ_MODEL}'. Set GROQ_MODEL to one of: "
+            f"{', '.join(_groq_chat_models(client)) or 'see console.groq.com/docs/models'}")
     except groq.APIError as exc:
         raise GenerationError(f"Groq error: {exc}")
 
